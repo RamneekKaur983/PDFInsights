@@ -1,10 +1,10 @@
 const express = require('express');
-const { NOW } = require('sequelize');
 const app = express()
 const port = 3000;
+const axios = require('axios');
 
 
-
+// Initialising Sequelize
 const Sequelize = require('sequelize')
 const sequelize = new Sequelize('postgres://ramkaur:password@127.0.0.1:5432/Server',
     {
@@ -15,14 +15,17 @@ const sequelize = new Sequelize('postgres://ramkaur:password@127.0.0.1:5432/Serv
             freezeTableName: true
         }
     })
-``
+
+// Defining Models
+
 let Comment = sequelize.define('comments', {
 
 
     time: Sequelize.DATE,
     user_id: Sequelize.INTEGER,
     comment_id: Sequelize.INTEGER,
-    document_id: Sequelize.INTEGER
+    document_id: Sequelize.INTEGER,
+    commentor_id: Sequelize.INTEGER
 
 
 });
@@ -54,17 +57,58 @@ let Document = sequelize.define('documents',
     })
 
 app.use(express.json());
-// app.get('/insert', (req, res) => {
-//     console.log("I am inside GET API")
-//     App();
 
-//     res.send('Hello WORLD')
-// })
+
+//  Writing the APIs
 app.get('/', (req, res) => {
     console.log("Home Route")
 })
 
-// Writing the POST APIs for the proxy server
+
+// app.get('/statsCollector/:id/:Action', async (req, res)=>
+// {
+//     var arr=['comments' , 'shares' , 'views']
+//         console.log("I am inside Stats Collector Get REquest" ,req.params.id)
+
+//     const {id , Action}=req.params
+//     console.log('ID' , id)
+//     console.log('Action' , Action)
+//     if(Action=='Comment')
+//     {
+//        const result=  await Comment.findAll({
+//             where: {
+//               id: id
+//             }
+//           });
+//           console.log("Comment in GET Request" , result)
+//           res.send(result)
+//     }
+//     if(Action =='Share')
+//     {
+//         const result= await  Share.findAll({
+//             where: {
+//               id: id
+//             }
+//           });
+//           console.log("Share in GET Request" , result)
+//           res.send(result)
+//     }
+//     if(Action== 'View')
+//     {
+//         const result= await View.findAll({
+//             where: {
+//               id: id
+//             }
+//           });
+//           console.log("View in GET Request" , result)
+//           res.send(result)
+//     }
+
+
+// })
+
+
+// Post API for addding Events to the DataBase
 
 app.post('/', async (req, res) => {
     if (req.body.Action == "Comment") {
@@ -76,41 +120,52 @@ app.post('/', async (req, res) => {
         var curr_comment_id = req.body.comment_id
         var curr_document_id = req.body.document_id
 
+        var curr_commentor_id = req.body.commentor_id
 
-        const result = await Comment.create({ user_id: curr_user_id, comment_id: curr_comment_id, document_id: curr_document_id, time: sequelize.literal('CURRENT_TIMESTAMP') })
-        const result2 = await Document.findAll({
-            where: {
-                document_id: curr_document_id
+
+        const result = await Comment.create({ user_id: curr_user_id, comment_id: curr_comment_id, document_id: curr_document_id, commentor_id: curr_commentor_id, time: sequelize.literal('CURRENT_TIMESTAMP') })
+
+
+        console.log("result   ", result)
+        const found_comment = await Document.findOrCreate({
+            where: { document_id: curr_document_id },
+            defaults: {
+                number_of_comments: 0,
+                number_of_shares: 0,
+                number_of_views: 0
             }
         });
-        console.log("Result On Finding The Document", result2)
 
-
-        if (result2.length == 0) {
-
-            const result3 = await Document.create({ document_id: curr_document_id, number_of_comments: 1 })
-            console.log("When there was no initail commebt", result3)
-
-        }
-        else if (result2.length != 0 && result2[0].dataValues.number_of_comments == null) {
-            const result5 = await Document.update(
-                { number_of_comments: 1 },
-                { where: { document_id: curr_document_id } }
-            )
-            console.log("Comment Null", result5)
-        }
-
-        else {
-            try {
-                const result4 = await Document.update(
-                    { number_of_comments: result2[0].dataValues.number_of_comments + 1 },
-                    { where: { document_id: curr_document_id } }
-                )
-                console.log("Added 1 to the number of comments", result4)
-            } catch (err) {
-                console.log(err)
+        const updated_comment = await Document.update({ number_of_comments: found_comment[0].dataValues.number_of_comments + 1 }, {
+            where: {
+                id: found_comment[0].dataValues.id
             }
-        }
+        });
+
+        console.log("FOund Comment", found_comment[0].dataValues)
+        console.log("Updated Comment", updated_comment)
+
+
+
+        await axios.get(`http://localhost:8000/collect`, {
+            params:
+            {
+                Result: result,
+                Action: req.body.Action
+            }
+        })
+            .then(function (response) {
+                console.log(response);
+            })
+            .catch(function (error) {
+                console.log(error);
+            })
+            .then(function () {
+                console.log("Get Request Sent to Stats Collector")
+            });
+
+
+
 
     }
     if (req.body.Action == "Share") {
@@ -119,37 +174,40 @@ app.post('/', async (req, res) => {
         var curr_sharee_id = req.body.sharee_id
         var curr_document_id = req.body.document_id
         const result = await Share.create({ sharer_id: curr_sharer_id, sharee_id: curr_sharee_id, document_id: curr_document_id, time: sequelize.literal('CURRENT_TIMESTAMP') })
-
-        const result2 = await Document.findAll({
-            where: {
-                document_id: curr_document_id
+        const found_share = await Document.findOrCreate({
+            where: { document_id: curr_document_id },
+            defaults: {
+                number_of_comments: 0,
+                number_of_shares: 0,
+                number_of_views: 0
             }
         });
-        console.log("Finding in Documents", result2)
-        if (result2.length == 0) {
 
-            const result3 = await Document.create({ document_id: curr_document_id, number_of_shares: 1 })
-            console.log("Result 2 lenfth 0", result3)
-        }
-        else if (result2.length != 0 && result2[0].dataValues.number_of_shares == null) {
-            const result5 = await Document.update(
-                { number_of_shares: 1 },
-                { where: { document_id: curr_document_id } }
-            )
-            console.log("Number of share null", result5)
-        }
-
-        else {
-            try {
-                const result4 = await Document.update(
-                    { number_of_shares: result2[0].dataValues.number_of_shares + 1 },
-                    { where: { document_id: curr_document_id } }
-                )
-                console.log("Added 1  to share", result4)
-            } catch (err) {
-                console.log(err)
+        const updated_share = await Document.update({ number_of_shares: found_share[0].dataValues.number_of_shares + 1 }, {
+            where: {
+                id: found_share[0].dataValues.id
             }
-        }
+        });
+
+        console.log("Found share", found_share)
+
+        await axios.get(`http://localhost:8000/collect`, {
+            params:
+            {
+                Result: result,
+                Action: req.body.Action
+            }
+        })
+            .then(function (response) {
+                console.log(response);
+            })
+            .catch(function (error) {
+                console.log(error);
+            })
+            .then(function () {
+                console.log("Get Request Sent to Stats Collector")
+            });
+
 
 
     }
@@ -161,35 +219,38 @@ app.post('/', async (req, res) => {
 
         const result = await View.create({ user_id: curr_user_id, document_id: curr_document_id, view_type: curr_view_type, time: sequelize.literal('CURRENT_TIMESTAMP') })
 
-        const result2 = await Document.findAll({
-            where: {
-                document_id: curr_document_id
+        const found_view = await Document.findOrCreate({
+            where: { document_id: curr_document_id },
+            defaults: {
+                number_of_comments: 0,
+                number_of_shares: 0,
+                number_of_views: 0
             }
         });
-        console.log("Finding all documents", result2)
-        if (result2.length == 0) {
-            const result3 = await Document.create({ document_id: curr_document_id, number_of_views: 1 })
-            console.log("Result 2 length 0", result3)
-        }
-        else if (result2.length != 0 && result2[0].dataValues.number_of_views == null) {
-            const result5 = await await Document.update(
-                { number_of_views: 1 },
-                { where: { document_id: curr_document_id } }
-            )
-            console.log("View count null", result5)
-        }
 
-        else {
-            try {
-                const result4 = await Document.update(
-                    { number_of_shares: result2[0].dataValues.number_of_views + 1 },
-                    { where: { document_id: curr_document_id } }
-                )
-                console.log("Updated voew Count by 1", result4)
-            } catch (err) {
-                console.log(err)
+        const updated_view = await Document.update({ number_of_views: found_view[0].dataValues.number_of_views + 1 }, {
+            where: {
+                id: found_view[0].dataValues.id
             }
-        }
+        });
+        console.log("Found View", found_view)
+        await axios.get(`http://localhost:8000/collect`, {
+            params:
+            {
+                Result: result,
+                Action: req.body.Action
+            }
+        })
+            .then(function (response) {
+                console.log(response);
+            })
+            .catch(function (error) {
+                console.log(error);
+            })
+            .then(function () {
+                console.log("Get Request Sent to Stats Collector")
+            });
+
 
 
     }
